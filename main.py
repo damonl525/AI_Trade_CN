@@ -285,12 +285,28 @@ def main():
     p_acct_delete = p_acct_sub.add_parser("delete", help="删除账户")
     p_acct_delete.add_argument("name", help="账户名")
 
+    p_acct_cost = p_acct_sub.add_parser("update-cost", help="更新账户总成本(实盘追加/赎回)")
+    p_acct_cost.add_argument("name", help="账户名")
+    p_acct_cost.add_argument("cost", type=float, help="新的总成本金额")
+
     # ── trade ──
-    p_trade = sub.add_parser("trade", help="执行模拟调仓")
-    p_trade.add_argument("account", nargs="?", default=None, help="账户名(缺省=全部模拟盘)")
-    p_trade.add_argument("--dry", action="store_true", help="只出建议不执行")
-    p_trade.add_argument("--tk", type=int, help="持仓数")
-    p_trade.add_argument("--lb", type=int, help="动量窗口")
+    p_trade = sub.add_parser("trade", help="模拟/实盘调仓")
+    p_trade_sub = p_trade.add_subparsers(dest="trade_cmd")
+
+    # trade manual <account> <action> <symbol> <price> <shares>
+    p_trade_manual = p_trade_sub.add_parser("manual", help="手动录入实际交易(非策略驱动)")
+    p_trade_manual.add_argument("account", help="账户名")
+    p_trade_manual.add_argument("action", choices=["buy", "sell"], help="buy=买入 / sell=卖出")
+    p_trade_manual.add_argument("symbol", help="代码 (如 510050)")
+    p_trade_manual.add_argument("price", type=float, help="成交价")
+    p_trade_manual.add_argument("shares", type=int, help="股数")
+
+    # trade [account] [--dry] [--tk N] [--lb N]  (策略驱动)
+    p_trade_auto = p_trade_sub.add_parser("auto", help="策略驱动调仓(默认)")
+    p_trade_auto.add_argument("account", nargs="?", default=None, help="账户名(缺省=全部模拟盘)")
+    p_trade_auto.add_argument("--dry", action="store_true", help="只出建议不执行")
+    p_trade_auto.add_argument("--tk", type=int, help="持仓数")
+    p_trade_auto.add_argument("--lb", type=int, help="动量窗口")
 
     # ── history ──
     p_hist = sub.add_parser("history", help="交易历史")
@@ -444,6 +460,9 @@ def _cmd_account(args):
     elif args.acct_cmd == "delete":
         pt.delete_account(args.name)
 
+    elif args.acct_cmd == "update-cost":
+        pt.update_cost_basis(args.name, args.cost)
+
 
 def _print_status(st: dict):
     """漂亮打印账户状态"""
@@ -453,6 +472,7 @@ def _print_status(st: dict):
     print(f"{'='*60}")
     print(f"  总资产:    ¥{st['total_value']:,.0f}")
     print(f"  现金:      ¥{st['cash']:,.0f}")
+    print(f"  总成本:    ¥{st.get('total_cost', 0):,.0f}")
     print(f"  持仓市值:  ¥{st['position_value']:,.0f} ({st['position_pct']})")
     print(f"  累计盈亏:  {st['pnl_total']} ({st['pnl_pct']})")
     print()
@@ -479,6 +499,13 @@ def _cmd_trade(args):
     from engine.paper_trader import PaperTrader
     pt = PaperTrader()
 
+    # ── manual: 手动录入实际交易 ──
+    if args.trade_cmd == "manual":
+        pt.manual_trade(args.account, args.symbol, args.action,
+                        args.price, args.shares)
+        return
+
+    # ── auto (默认): 策略驱动调仓 ──
     if args.account:
         report = pt.rebalance(args.account, top_k=args.tk, lookback=args.lb,
                               dry_run=args.dry)

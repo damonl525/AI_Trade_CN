@@ -61,12 +61,21 @@ class PaperTrader:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._migrate()
 
     # ════════════════════════════════════
     # 数据库
     # ════════════════════════════════════
     def _conn(self):
         return sqlite3.connect(str(self.db_path))
+
+    def _migrate(self):
+        """增量迁移 — 给旧数据库加新列"""
+        with self._conn() as c:
+            cur = c.execute("PRAGMA table_info(accounts)")
+            cols = {r[1] for r in cur.fetchall()}
+            if "total_cost" not in cols:
+                c.execute("ALTER TABLE accounts ADD COLUMN total_cost REAL DEFAULT 0")
 
     def _init_db(self):
         with self._conn() as c:
@@ -76,6 +85,7 @@ class PaperTrader:
                     name TEXT UNIQUE NOT NULL,
                     type TEXT DEFAULT 'sim',  -- sim / live
                     cash REAL NOT NULL,
+                    total_cost REAL DEFAULT 0,
                     created_at TEXT DEFAULT (datetime('now','localtime')),
                     notes TEXT DEFAULT ''
                 );
@@ -121,15 +131,26 @@ class PaperTrader:
     # 账户管理
     # ════════════════════════════════════
     def create_account(self, name: str, cash: float = 100_000,
-                       acct_type: str = "sim", notes: str = "") -> int:
-        """创建账户, 返回 account_id"""
+                       acct_type: str = "sim", notes: str = "",
+                       total_cost: float = None) -> int:
+        """创建账户, 返回 account_id
+        
+        Args:
+            name: 账户名
+            cash: 初始现金
+            acct_type: sim(模拟) / live(实盘)
+            notes: 备注
+            total_cost: 总成本(实盘已投入金额), 默认=cash
+        """
+        if total_cost is None:
+            total_cost = cash
         with self._conn() as conn:
             try:
                 cur = conn.execute(
-                    "INSERT INTO accounts (name, type, cash, notes) VALUES (?,?,?,?)",
-                    (name, acct_type, cash, notes))
+                    "INSERT INTO accounts (name, type, cash, total_cost, notes) VALUES (?,?,?,?,?)",
+                    (name, acct_type, cash, total_cost, notes))
                 aid = cur.lastrowid
-                print(f"✅ 账户已创建: [{aid}] {name} (¥{cash:,.0f})")
+                print(f"✅ 账户已创建: [{aid}] {name} (现金¥{cash:,.0f} / 成本¥{total_cost:,.0f})")
                 return aid
             except sqlite3.IntegrityError:
                 print(f"❌ 账户名已存在: {name}")
@@ -139,7 +160,7 @@ class PaperTrader:
         """列出所有账户"""
         with self._conn() as c:
             df = pd.read_sql_query(
-                "SELECT id, name, type, cash, created_at, notes FROM accounts ORDER BY id",
+                "SELECT id, name, type, cash, total_cost, created_at, notes FROM accounts ORDER BY id",
                 c)
         if df.empty:
             print("📭 暂无账户, 请先 create")
@@ -149,10 +170,13 @@ class PaperTrader:
         rows = []
         for _, r in df.iterrows():
             total = self._calc_total(r["id"], r["cash"])
+            cost = r["total_cost"] or r["cash"]
             rows.append({
                 "ID": r["id"], "名称": r["name"], "类型": r["type"],
                 "现金": f"¥{r['cash']:,.0f}",
                 "总资产": f"¥{total:,.0f}",
+                "总成本": f"¥{cost:,.0f}",
+                "净盈亏": f"¥{total-cost:+,.0f}",
                 "创建": r["created_at"][:10], "备注": r["notes"] or "",
             })
         return pd.DataFrame(rows)
@@ -161,12 +185,12 @@ class PaperTrader:
         """按名称或ID查账户"""
         with self._conn() as c:
             row = c.execute(
-                "SELECT id, name, type, cash, notes FROM accounts WHERE name=? OR id=?",
+                "SELECT id, name, type, cash, total_cost, notes FROM accounts WHERE name=? OR id=?",
                 (str(name_or_id), str(name_or_id))
             ).fetchone()
             if row:
                 return {"id": row[0], "name": row[1], "type": row[2],
-                        "cash": row[3], "notes": row[4]}
+                        "cash": row[3], "total_cost": row[4] or row[3], "notes": row[5]}
         return None
 
     def _calc_total(self, account_id: int, cash: float) -> float:
@@ -492,7 +516,8 @@ class PaperTrader:
         positions = self._get_positions(acct["id"])
         total = self._calc_total(acct["id"], acct["cash"])
         pos_val = total - acct["cash"]
-        pnl = total - 100_000  # 简化: 相对初始10万的盈亏
+        cost = acct.get("total_cost", 100_000) or 100_000
+        pnl = total - cost
 
         # 每只持仓明细
         holdings = []
@@ -520,7 +545,7 @@ class PaperTrader:
         nav_df = self.nav_history(name_or_id)
         if not nav_df.empty:
             latest_nav = nav_df.iloc[-1]
-            nav_return = (latest_nav["total_value"] / 100_000 - 1) * 100
+            nav_return = (latest_nav["total_value"] / cost - 1) * 100
         else:
             nav_return = 0
 
@@ -528,6 +553,7 @@ class PaperTrader:
             "account": acct,
             "total_value": total,
             "cash": acct["cash"],
+            "total_cost": cost,
             "position_value": pos_val,
             "position_pct": f"{pos_val/total*100:.0f}%" if total > 0 else "0%",
             "pnl_total": f"¥{pnl:+,.0f}",
@@ -627,3 +653,92 @@ class PaperTrader:
             c.execute("DELETE FROM nav_snapshots WHERE account_id=?", (acct["id"],))
             c.execute("DELETE FROM accounts WHERE id=?", (acct["id"],))
         print(f"🗑️ 账户 [{acct['id']}] {acct['name']} 已删除")
+
+    def update_cost_basis(self, name_or_id, new_cost: float):
+        """更新账户总成本(实盘追加资金后调用)"""
+        acct = self._get_account(name_or_id)
+        if not acct:
+            print(f"❌ 账户不存在: {name_or_id}")
+            return
+
+        old_cost = acct.get("total_cost", acct["cash"])
+        with self._conn() as c:
+            c.execute("UPDATE accounts SET total_cost=? WHERE id=?", (new_cost, acct["id"]))
+        print(f"💰 [{acct['name']}] 总成本已更新: ¥{old_cost:,.0f} → ¥{new_cost:,.0f}")
+
+    def manual_trade(self, name_or_id, symbol: str, action: str,
+                     price: float, shares: int):
+        """手动录入一笔实际交易(非策略驱动)
+        
+        Args:
+            name_or_id: 账户名或ID
+            symbol: 代码 (如 '510050')
+            action: 'buy' 或 'sell'
+            price: 成交价
+            shares: 股数
+        """
+        acct = self._get_account(name_or_id)
+        if not acct:
+            print(f"❌ 账户不存在: {name_or_id}")
+            return None
+
+        if action not in ("buy", "sell"):
+            print(f"❌ action 必须是 buy 或 sell")
+            return None
+
+        total = shares * price
+        commission = max(MIN_COMMISSION, total * COMMISSION)
+        stamp = total * STAMP_DUTY if action == "sell" else 0
+
+        # 卖: 检查持仓够不够
+        if action == "sell":
+            pos = self._get_positions(acct["id"])
+            held = 0
+            if not pos.empty:
+                match = pos[pos["symbol"] == symbol]
+                if not match.empty:
+                    held = int(match.iloc[0]["shares"])
+            if shares > held:
+                print(f"❌ 持仓不足: {symbol} 持有 {held} 股, 试图卖 {shares} 股")
+                return None
+
+        # 买: 检查现金够不够
+        if action == "buy":
+            cost = total + commission
+            if cost > acct["cash"]:
+                print(f"❌ 现金不足: ¥{acct['cash']:,.0f} < ¥{cost:,.0f}")
+                return None
+
+        # 获取动态择时 (标记用)
+        regime = ""
+        pos_pct = 0
+        try:
+            from engine.dynamic_timing import dynamic_position_now
+            dp = dynamic_position_now()
+            regime = dp.get("regime", "")
+            pos_pct = dp.get("position", 0)
+        except:
+            pass
+
+        # 执行交易
+        self._execute_trade(acct["id"], symbol, action, shares, price,
+                           signal="手动录入", regime=regime, position_pct=pos_pct)
+
+        # 保存 NAV 快照
+        self._save_nav(acct["id"], regime, pos_pct)
+
+        act_cn = "买入" if action == "buy" else "卖出"
+        name = ETF_NAMES.get(symbol, symbol)
+        print(f"✅ [{acct['name']}] 手动{act_cn}: {symbol}({name}) {shares}股 @ ¥{price:.4f}  "
+              f"金额¥{total:,.0f} 手续费¥{commission+stamp:,.0f}")
+
+        return {
+            "account": acct["name"],
+            "action": act_cn,
+            "symbol": symbol,
+            "name": name,
+            "shares": shares,
+            "price": price,
+            "total": total,
+            "commission": commission + stamp,
+        }

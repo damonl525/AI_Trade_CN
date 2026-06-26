@@ -59,23 +59,34 @@ uv run python main.py live            # 一键刷新数据+出信号
 
 ### 模拟盘
 ```bash
-uv run python main.py account create <名称> --cash 100000  # 创建账户
-uv run python main.py account create <名称> --cash 50000 --type live  # 实盘账户
+uv run python main.py account create <名称> --cash 100000  # 创建模拟账户
+uv run python main.py account create <名称> --cash 50000 --type live  # 创建实盘账户
+uv run python main.py account create <名称> --cash 30000 --cost 50000 --type live  # 实盘(成本≠现金)
 uv run python main.py account list     # 所有账户
-uv run python main.py account status [名称]  # 账户详情
+uv run python main.py account status [名称]  # 账户详情(含成本/净盈亏)
 uv run python main.py account reset <名称>   # 重置账户
+uv run python main.py account update-cost <名称> <新成本>  # 更新实盘总成本
 ```
 
 ### 调仓 (trade)
+
+#### 策略驱动 (auto)
 ```bash
-uv run python main.py trade            # 全部模拟盘依次调仓 ⚠️
-uv run python main.py trade 模拟盘1    # 只调指定账户 (模拟盘或实盘)
-uv run python main.py trade --dry      # 只看全部模拟盘建议，不执行
-uv run python main.py trade 模拟盘1 --dry  # 只看指定账户建议，不执行
+uv run python main.py trade auto              # 全部模拟盘依次调仓
+uv run python main.py trade auto 模拟盘1       # 只调指定账户
+uv run python main.py trade auto --dry        # 只看建议，不执行
+uv run python main.py trade auto 模拟盘1 --dry # 指定账户只看不执行
 ```
 
-> **注意**：`trade` 不带账户名 = 所有 `type=sim` 的模拟盘都会执行调仓。
-> 带实盘账户名 (`trade 真实1`) 也会真实调仓。**实盘操作前务必先 `--dry` 预览！**
+#### 手动录入 (manual) — 实盘操作后追记
+```bash
+# 格式: trade manual <账户> <buy|sell> <代码> <价格> <股数>
+uv run python main.py trade manual 真实1 buy 510050 2.718 1000
+uv run python main.py trade manual 真实1 sell 588000 4.850 500
+```
+
+> **手动录入会记录到交易历史，自动更新持仓和现金，并保存 NAV 快照。**
+> 手续费自动计算 (万 5 佣金 + 千 0.5 卖印花税 + 最低 5 元)。
 
 ### 查看
 ```bash
