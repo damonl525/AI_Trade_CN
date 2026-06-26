@@ -129,6 +129,16 @@ uv run python main.py daily            # AI 日报 (DeepSeek)
 uv run python main.py daily --brief    # 纯数据无 AI
 ```
 
+### ETF 池管理
+```bash
+uv run python main.py pool list          # 查看当前 ETF 池
+uv run python main.py pool add <代码> <名称>  # 添加 ETF
+uv run python main.py pool remove <代码>      # 删除 ETF
+uv run python main.py pool reset              # 重置为默认池
+```
+
+> 默认池含 16 只 ETF：上证50 / 沪深300 / 中证500 / 创业板 / 科创50 / 证券 / 医药 / 酒/消费 / 红利 / 国债 / 纳指ETF / 纳指100 / 机器人 / 黄金 / AI智能 / 能源。增删存在 `data/etf_pool.json`，另一台电脑 `git pull` 同步。
+
 ### 配置 AI Provider
 ```powershell
 # DeepSeek (默认)
