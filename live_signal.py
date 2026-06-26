@@ -10,6 +10,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 from config import DATA_MARKET, OUTPUT, FULL_POOL
+from engine.timing import market_regime
+from engine.dynamic_timing import dynamic_position_now
 
 
 # ════════════════════════════════════════════
@@ -22,7 +24,7 @@ def _momentum(symbol: str, days: int = 20) -> float:
     p = DATA_MARKET / f"etf_{symbol}.parquet"
     if not p.exists():
         return -999
-    df = load(p)
+    df = pd.read_parquet(p)
     if len(df) < days:
         return -999
     return (df["close"].iloc[-1] / df["close"].iloc[-days] - 1) * 100
@@ -33,7 +35,7 @@ def _volatility(symbol: str, days: int = 60) -> float:
     p = DATA_MARKET / f"etf_{symbol}.parquet"
     if not p.exists():
         return 99
-    df = load(p)
+    df = pd.read_parquet(p)
     if len(df) < days:
         return 99
     return df["close"].pct_change().tail(days).std() * 100
@@ -43,7 +45,7 @@ def _last_close(symbol: str) -> float:
     p = DATA_MARKET / f"etf_{symbol}.parquet"
     if not p.exists():
         return 0
-    df = load(p)
+    df = pd.read_parquet(p)
     return float(df["close"].iloc[-1])
 
 
@@ -51,7 +53,7 @@ def _last_date(symbol: str) -> str:
     p = DATA_MARKET / f"etf_{symbol}.parquet"
     if not p.exists():
         return "N/A"
-    df = load(p)
+    df = pd.read_parquet(p)
     return str(df["date"].iloc[-1])[:10]
 
 
