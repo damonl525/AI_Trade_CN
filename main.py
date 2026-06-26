@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 from datetime import datetime
 
-from config import ROOT, DATA_MARKET, OUTPUT
+from config import ROOT, DATA_MARKET, OUTPUT, FULL_SYMBOLS, FULL_POOL, save_pool, reset_pool
 from data.fetcher import fetch_a_stock, fetch_etf, fetch_index, load
 from engine.backtest import run_backtest, preview
 from engine.signals import *   # S_* 策略全部导入
@@ -39,10 +39,6 @@ SIGNAL_HELP = {
     "Breakout_ATR": "突破+ATR动态止损, 截断亏损让利润跑",
     "Rotation":     "ETF轮动, 动量排名/Top K/定频调仓",
 }
-
-# ── ETF 池 ──
-FULL_SYMBOLS = ["510050", "510300", "510500", "159915", "588000",
-                "512880", "512010", "512690", "510880", "511010"]
 
 def cmd_fetch(kind: str, symbol: str, start: str = "2020-01-01", force: bool = False):
     fetchers = {
@@ -320,6 +316,17 @@ def main():
     # ── advice ──
     sub.add_parser("advice", help="所有账户动态策略建议")
 
+    # ── pool 🆕 ──
+    p_pool = sub.add_parser("pool", help="ETF池管理(查看/增删)")
+    p_pool_sub = p_pool.add_subparsers(dest="pool_cmd")
+    p_pool_sub.add_parser("list", help="查看当前ETF池")
+    p_pool_add = p_pool_sub.add_parser("add", help="添加ETF")
+    p_pool_add.add_argument("code", help="代码 (如 518880)")
+    p_pool_add.add_argument("name", help="名称 (如 黄金ETF)")
+    p_pool_remove = p_pool_sub.add_parser("remove", help="移除ETF")
+    p_pool_remove.add_argument("code", help="代码")
+    p_pool_sub.add_parser("reset", help="重置为默认池")
+
     args = parser.parse_args()
 
     if args.cmd == "fetch":
@@ -362,6 +369,8 @@ def main():
         _cmd_nav(args)
     elif args.cmd == "advice":
         _cmd_advice()
+    elif args.cmd == "pool":
+        _cmd_pool(args)
     else:
         parser.print_help()
 
@@ -617,6 +626,47 @@ def _cmd_advice():
         return
     print("\n📊 所有账户动态策略建议:")
     print(df.to_string(index=False))
+
+
+def _cmd_pool(args):
+    """ETF池管理"""
+    if args.pool_cmd == "list" or args.pool_cmd is None:
+        print(f"\n📋 ETF 池 ({len(FULL_POOL)} 只)")
+        print(f"{'─'*50}")
+        for code, name in FULL_POOL.items():
+            print(f"  {code}  {name}")
+        print(f"{'─'*50}")
+        print(f"  代码列表: {', '.join(FULL_SYMBOLS)}")
+        print()
+
+    elif args.pool_cmd == "add":
+        code = args.code
+        name = args.name
+        FULL_POOL[code] = name
+        save_pool(FULL_POOL)
+        # 刷新内存中的 symbols
+        FULL_SYMBOLS[:] = list(FULL_POOL.keys())
+        print(f"✅ 已添加: {code} {name}")
+        print(f"   当前池: {len(FULL_POOL)} 只")
+
+    elif args.pool_cmd == "remove":
+        code = args.code
+        if code in FULL_POOL:
+            name = FULL_POOL.pop(code)
+            save_pool(FULL_POOL)
+            FULL_SYMBOLS[:] = list(FULL_POOL.keys())
+            print(f"✅ 已移除: {code} {name}")
+            print(f"   当前池: {len(FULL_POOL)} 只")
+        else:
+            print(f"❌ 未找到: {code}")
+
+    elif args.pool_cmd == "reset":
+        pool = reset_pool()
+        FULL_POOL.clear()
+        FULL_POOL.update(pool)
+        FULL_SYMBOLS[:] = list(FULL_POOL.keys())
+        print(f"✅ 已重置为默认池 ({len(FULL_POOL)} 只)")
+
 
 if __name__ == "__main__":
     main()

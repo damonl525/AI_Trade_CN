@@ -9,32 +9,12 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from config import DATA_MARKET, OUTPUT
-from data.fetcher import load
-from engine.timing import market_regime
-from engine.dynamic_timing import dynamic_position_now
+from config import DATA_MARKET, OUTPUT, FULL_POOL
 
 
 # ════════════════════════════════════════════
-# 全量 ETF 池
+# 全量 ETF 池 — 从 config.FULL_POOL 加载
 # ════════════════════════════════════════════
-
-FULL_POOL = {
-    "510050": "上证50",
-    "510300": "沪深300",
-    "510500": "中证500",
-    "159915": "创业板",
-    "588000": "科创50",
-    "512880": "证券",
-    "512010": "医药",
-    "512690": "酒/消费",
-    "510880": "红利",
-    "511010": "国债",
-    "159941": "纳指ETF",
-    "513100": "纳指100",
-    "159915": "创业板ETF",
-    "562500": "机器人",
-}
 
 
 def _momentum(symbol: str, days: int = 20) -> float:
