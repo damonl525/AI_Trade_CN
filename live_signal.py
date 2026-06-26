@@ -87,7 +87,7 @@ def generate_signals(
     scores = {}
     for code, name in FULL_POOL.items():
         mom = _momentum(code, lookback)
-        if mom > -900:  # 有数据
+        if mom > 0:  # 双动量: 仅正动量ETF进入候选池
             scores[code] = {
                 "name": name,
                 "momentum": round(mom, 1),
@@ -96,7 +96,15 @@ def generate_signals(
                 "date": _last_date(code),
             }
 
-    # 3. 排序取 Top K
+    # 3. 排序取 Top K（双动量: 空池 → 全仓国债/现金）
+    if not scores:
+        return {
+            "regime": regime, "dyn_pos": dyn_pos,
+            "date": datetime.now().strftime("%Y-%m-%d"), "data_date": "N/A",
+            "hold": [], "out": [], "position_mult": dyn_pos["position"],
+            "top_k": top_k, "lookback": lookback,
+            "empty_pool": True,  # 标记空池, print_signals 会提示空仓
+        }
     ranked = sorted(scores.items(), key=lambda x: x[1]["momentum"], reverse=True)
     top_names = {r[0] for r in ranked[:top_k]}
 
@@ -130,8 +138,14 @@ def print_signals(sig: dict, portfolio_value: float = 100_000):
     
     print("\n" + "=" * 70)
     print(f"  🤖 AI量化动态信号 · {sig['date']}")
-    print(f"  数据日期: {sig['data_date']}  |  策略: 动量轮动Top{sig['top_k']}")
+    print(f"  数据日期: {sig['data_date']}  |  策略: 双动量轮动 Top{sig['top_k']}")
     print("=" * 70)
+
+    # 🆕 双动量空池 → 建议空仓
+    if sig.get("empty_pool"):
+        print(f"\n  ⚠️  双动量: 全池无正动量ETF — 建议空仓/全仓国债")
+        print(f"  {'─' * 66}")
+        return
 
     # 择时状态
     emoji = {"bull": "🟢 牛市", "bear": "🔴 熊市", "neutral": "🟡 震荡"}

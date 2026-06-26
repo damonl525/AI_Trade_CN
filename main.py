@@ -257,6 +257,7 @@ def main():
     p_dyn.add_argument("--lb", type=int, default=10, help="动量窗口")
     p_dyn.add_argument("--tk", type=int, default=3, help="持仓数")
     p_dyn.add_argument("--rebal", type=int, default=40, help="调仓周期(天)")
+    p_dyn.add_argument("--all", action="store_true", help="全动量公式同数据对比(base/vol/frog/dual/multi)")
 
     # ── pos 🆕 ── 当前动态仓位
     sub.add_parser("pos", help="当前动态仓位建议(连续0-100%)")
@@ -406,14 +407,21 @@ def _cmd_entry(args):
 def _cmd_dynbt(args):
     """动态择时对比回测"""
     import subprocess, sys
-    cmd = [
-        sys.executable, str(Path(__file__).parent / "backtest_dynamic.py"),
-        "--years", str(getattr(args, "years", 5)),
-        "--lookback", str(getattr(args, "lb", 10)),
-        "--top_k", str(getattr(args, "tk", 3)),
-        "--rebalance", str(getattr(args, "rebal", 40)),
-    ]
-    subprocess.run(cmd)
+
+    if getattr(args, "all", False):
+        # ── 全动量公式对比 ──
+        script = str(Path(__file__).parent / "backtest_momentum_formulas.py")
+        subprocess.run([sys.executable, script])
+    else:
+        # ── 三策略择时对比 ──
+        cmd = [
+            sys.executable, str(Path(__file__).parent / "backtest_dynamic.py"),
+            "--years", str(getattr(args, "years", 5)),
+            "--lookback", str(getattr(args, "lb", 10)),
+            "--top_k", str(getattr(args, "tk", 3)),
+            "--rebalance", str(getattr(args, "rebal", 40)),
+        ]
+        subprocess.run(cmd)
 
 
 def _cmd_pos():
