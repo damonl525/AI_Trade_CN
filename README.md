@@ -27,6 +27,24 @@ uv run python main.py account create 模拟盘1 --cash 100000
 uv run python main.py trade 模拟盘1 --dry
 ```
 
+## 每日操作流
+
+```bash
+# ① 收盘后：刷新行情（拉今日收盘价，后面所有盈亏基于这个）
+uv run python main.py live
+
+# ② 看账户盈亏（已自动计算：总资产−总成本）
+uv run python main.py account status 模拟盘1
+
+# ③ 明天怎么调？（先 dry-run 看建议）
+uv run python main.py trade auto --dry
+
+# ④ 确认后执行
+uv run python main.py trade auto 模拟盘1
+```
+
+> **先 `live` 再 `status`** — 不跑 `live` 的话 `status` 拿的还是昨天收盘价，盈亏是假的。
+
 ## 核心模块
 
 | 模块 | 文件 | 功能 |
