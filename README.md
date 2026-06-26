@@ -66,6 +66,7 @@ uv run python main.py account list     # 所有账户
 uv run python main.py account status [名称]  # 账户详情(含成本/净盈亏)
 uv run python main.py account reset <名称>   # 重置账户
 uv run python main.py account update-cost <名称> <新成本>  # 更新实盘总成本
+uv run python main.py account delete <名称>     # 删除账户(含所有记录)
 ```
 
 ### 调仓 (trade)

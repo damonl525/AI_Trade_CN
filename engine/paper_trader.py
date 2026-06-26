@@ -156,6 +156,32 @@ class PaperTrader:
                 print(f"❌ 账户名已存在: {name}")
                 return -1
 
+    def delete_account(self, name_or_id) -> bool:
+        """删除账户及其所有持仓、交易、NAV记录
+        
+        Args:
+            name_or_id: 账户名或ID
+        
+        Returns:
+            bool: 是否成功
+        """
+        acct = self._get_account(name_or_id)
+        if not acct:
+            print(f"❌ 账户不存在: {name_or_id}")
+            return False
+        
+        aid = acct["id"]
+        aname = acct["name"]
+        
+        with self._conn() as conn:
+            conn.execute("DELETE FROM positions WHERE account_id=?", (aid,))
+            conn.execute("DELETE FROM trades WHERE account_id=?", (aid,))
+            conn.execute("DELETE FROM nav_snapshots WHERE account_id=?", (aid,))
+            conn.execute("DELETE FROM accounts WHERE id=?", (aid,))
+        
+        print(f"🗑️ 已删除: [{aid}] {aname} (含所有持仓/交易/净值记录)")
+        return True
+
     def list_accounts(self) -> pd.DataFrame:
         """列出所有账户"""
         with self._conn() as c:

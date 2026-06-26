@@ -1,4 +1,4 @@
-"""AI量化平台 CLI v3 (含 AI 日报 + 入场检查)
+﻿"""AI量化平台 CLI v3 (含 AI 日报 + 入场检查)
 
 新增命令:
   uv run main optimize             参数优化(网格搜索)
