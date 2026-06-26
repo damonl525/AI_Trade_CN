@@ -265,6 +265,45 @@ def main():
     # ── pos 🆕 ── 当前动态仓位
     sub.add_parser("pos", help="当前动态仓位建议(连续0-100%)")
 
+    # ── 模拟盘 🆕 ──
+    p_acct = sub.add_parser("account", help="模拟盘账户管理")
+    p_acct_sub = p_acct.add_subparsers(dest="acct_cmd")
+    p_acct_create = p_acct_sub.add_parser("create", help="创建账户")
+    p_acct_create.add_argument("name", help="账户名")
+    p_acct_create.add_argument("--cash", type=float, default=100_000, help="初始资金")
+    p_acct_create.add_argument("--type", default="sim", choices=["sim", "live"], help="sim=模拟/live=实盘")
+
+    p_acct_list = p_acct_sub.add_parser("list", help="列出所有账户")
+
+    p_acct_status = p_acct_sub.add_parser("status", help="账户状态")
+    p_acct_status.add_argument("name", nargs="?", default=None, help="账户名(缺省=全部)")
+
+    p_acct_reset = p_acct_sub.add_parser("reset", help="重置账户")
+    p_acct_reset.add_argument("name", help="账户名")
+    p_acct_reset.add_argument("--cash", type=float, default=100_000, help="重置后现金")
+
+    p_acct_delete = p_acct_sub.add_parser("delete", help="删除账户")
+    p_acct_delete.add_argument("name", help="账户名")
+
+    # ── trade ──
+    p_trade = sub.add_parser("trade", help="执行模拟调仓")
+    p_trade.add_argument("account", nargs="?", default=None, help="账户名(缺省=全部模拟盘)")
+    p_trade.add_argument("--dry", action="store_true", help="只出建议不执行")
+    p_trade.add_argument("--tk", type=int, help="持仓数")
+    p_trade.add_argument("--lb", type=int, help="动量窗口")
+
+    # ── history ──
+    p_hist = sub.add_parser("history", help="交易历史")
+    p_hist.add_argument("account", nargs="?", default=None, help="账户名")
+    p_hist.add_argument("--limit", type=int, default=30, help="条数")
+
+    # ── nav ──
+    p_nav = sub.add_parser("nav", help="净值曲线")
+    p_nav.add_argument("account", nargs="?", default=None, help="账户名")
+
+    # ── advice ──
+    sub.add_parser("advice", help="所有账户动态策略建议")
+
     args = parser.parse_args()
 
     if args.cmd == "fetch":
@@ -297,6 +336,16 @@ def main():
         _cmd_dynbt(args)
     elif args.cmd == "pos":
         _cmd_pos()
+    elif args.cmd == "account":
+        _cmd_account(args)
+    elif args.cmd == "trade":
+        _cmd_trade(args)
+    elif args.cmd == "history":
+        _cmd_history(args)
+    elif args.cmd == "nav":
+        _cmd_nav(args)
+    elif args.cmd == "advice":
+        _cmd_advice()
     else:
         parser.print_help()
 
@@ -354,6 +403,193 @@ def _cmd_pos():
         print(f"     🟡 谨慎进场，半仓")
     else:
         print(f"     🔴 建议观望或微量参与")
+
+# ════════════════════════════════════════
+# 🆕 模拟盘命令
+# ════════════════════════════════════════
+def _cmd_account(args):
+    from engine.paper_trader import PaperTrader
+    pt = PaperTrader()
+
+    if args.acct_cmd == "create":
+        pt.create_account(args.name, cash=args.cash, acct_type=args.type)
+
+    elif args.acct_cmd == "list":
+        df = pt.list_accounts()
+        if not df.empty:
+            print("\n📋 所有账户")
+            print(df.to_string(index=False))
+
+    elif args.acct_cmd == "status":
+        if args.name:
+            st = pt.status(args.name)
+            if st:
+                _print_status(st)
+        else:
+            # 所有账户汇总
+            df = pt.list_accounts()
+            if df.empty:
+                return
+            print("\n📋 账户汇总")
+            print(df.to_string(index=False))
+            # 快速展示第一个
+            first = df.iloc[0]
+            st = pt.status(first["ID"] if "ID" in df.columns else first["名称"])
+            if st:
+                _print_status(st)
+
+    elif args.acct_cmd == "reset":
+        pt.reset_account(args.name, cash=args.cash)
+
+    elif args.acct_cmd == "delete":
+        pt.delete_account(args.name)
+
+
+def _print_status(st: dict):
+    """漂亮打印账户状态"""
+    acct = st["account"]
+    print(f"\n{'='*60}")
+    print(f"  🏦 {acct['name']} ({acct['type']})")
+    print(f"{'='*60}")
+    print(f"  总资产:    ¥{st['total_value']:,.0f}")
+    print(f"  现金:      ¥{st['cash']:,.0f}")
+    print(f"  持仓市值:  ¥{st['position_value']:,.0f} ({st['position_pct']})")
+    print(f"  累计盈亏:  {st['pnl_total']} ({st['pnl_pct']})")
+    print()
+
+    if st["holdings"]:
+        print("  📦 当前持仓:")
+        for h in st["holdings"]:
+            flag = "🔴" if h["pnl_pct"].startswith("-") else "🟢"
+            print(f"    {flag} {h['symbol']} {h['name']:<6}  "
+                  f"{h['shares']:>6}股 @ ¥{h['price']:.4f}  "
+                  f"市值{h['value']}  盈亏{h['pnl_pct']}")
+    else:
+        print("  📭 空仓")
+
+    if st["recent_trades"] is not None and not st["recent_trades"].empty:
+        print(f"\n  🕐 最近交易:")
+        for _, t in st["recent_trades"].head(5).iterrows():
+            act = "买入" if t["action"] == "buy" else "卖出"
+            print(f"    {str(t['timestamp'])[:16]} {act} {t['symbol']} "
+                  f"{int(t['shares'])}股 @ ¥{t['price']:.4f}  [{t.get('signal','')}]")
+
+
+def _cmd_trade(args):
+    from engine.paper_trader import PaperTrader
+    pt = PaperTrader()
+
+    if args.account:
+        report = pt.rebalance(args.account, top_k=args.tk, lookback=args.lb,
+                              dry_run=args.dry)
+        if report:
+            _print_trade_report(report)
+    else:
+        # 所有模拟盘依次调仓
+        df = pt.list_accounts()
+        if df.empty:
+            return
+        for _, r in df.iterrows():
+            name = r["名称"] if "名称" in df.columns else r["ID"]
+            report = pt.rebalance(name, top_k=args.tk, lookback=args.lb,
+                                  dry_run=args.dry)
+            if report:
+                _print_trade_report(report)
+            print()
+
+
+def _print_trade_report(report: dict):
+    """漂亮打印调仓报告"""
+    tag = "🧪 模拟" if not report.get("executed", False) else "✅ 执行"
+    print(f"\n{'='*60}")
+    print(f"  {tag} {report['account']} · {report['date']}")
+    print(f"  市场: {report['regime']} | 动态仓位: {report['dynamic_pos']}")
+    print(f"  总资产: {report['total_value']} | 目标敞口: {report['target_exposure']}")
+    print(f"  现金储备: {report['cash_reserve']}")
+    print(f"  Top: {', '.join(report['top_symbols'])}")
+
+    if report.get("alerts"):
+        print(f"\n  ⚠️ 风控警报:")
+        for a in report["alerts"]:
+            print(f"    {a}")
+
+    if report.get("actions"):
+        print(f"\n  📋 调仓动作:")
+        for a in report["actions"]:
+            icon = "🔵" if "买入" in a["action"] else "🔴"
+            cost_info = f" 费用{a.get('cost','')}" if "cost" in a else ""
+            print(f"    {icon} {a['action']} {a['symbol']}({a['name']}) "
+                  f"{a['shares']}股 @ ¥{a['price']:.4f}  原因: {a['reason']}{cost_info}")
+    elif report.get("summary"):
+        print(f"\n  {report['summary']}")
+
+
+def _cmd_history(args):
+    from engine.paper_trader import PaperTrader
+    pt = PaperTrader()
+
+    if args.account:
+        df = pt.trade_history(args.account, limit=args.limit)
+        if df.empty:
+            print(f"📭 {args.account} 暂无交易记录")
+        else:
+            print(f"\n🕐 {args.account} 最近交易:")
+            print(df.to_string(index=False))
+    else:
+        # 所有账户
+        accts = pt.list_accounts()
+        if accts.empty:
+            return
+        for _, r in accts.iterrows():
+            name = r["名称"] if "名称" in accts.columns else r["ID"]
+            df = pt.trade_history(name, limit=args.limit)
+            if not df.empty:
+                print(f"\n🕐 {name}:")
+                print(df.head(10).to_string(index=False))
+
+
+def _cmd_nav(args):
+    from engine.paper_trader import PaperTrader
+    pt = PaperTrader()
+
+    if args.account:
+        df = pt.nav_history(args.account)
+        if df.empty:
+            print(f"📭 {args.account} 暂无净值记录")
+        else:
+            print(f"\n📈 {args.account} 净值曲线:")
+            first = df.iloc[0]["total_value"]
+            print(f"  初始: ¥{first:,.0f}  最新: ¥{df.iloc[-1]['total_value']:,.0f}  "
+                  f"收益: {df.iloc[-1]['total_value']/first-1:+.2%}")
+            print(f"\n  {'日期':<12} {'总资产':>10} {'现金':>10} {'持仓':>10} {'仓位':>6} 市场")
+            print(f"  {'─'*12} {'─'*10} {'─'*10} {'─'*10} {'─'*6} {'─'*6}")
+            for _, r in df.tail(20).iterrows():
+                print(f"  {str(r['date'])[:10]:<12} ¥{r['total_value']:>8,.0f}  "
+                      f"¥{r['cash']:>8,.0f}  ¥{r['position_value']:>8,.0f}  "
+                      f"{r['position_pct']:>4.0%}  {r.get('regime','')}")
+    else:
+        # 所有账户
+        accts = pt.list_accounts()
+        if accts.empty:
+            return
+        for _, r in accts.iterrows():
+            name = r["名称"] if "名称" in accts.columns else r["ID"]
+            df = pt.nav_history(name)
+            if not df.empty:
+                first = df.iloc[0]["total_value"]
+                last = df.iloc[-1]["total_value"]
+                print(f"  {name}: ¥{last:,.0f} ({last/first-1:+.2%})   "
+                      f"{len(df)}天")
+
+
+def _cmd_advice():
+    from engine.paper_trader import PaperTrader
+    pt = PaperTrader()
+    df = pt.all_accounts_advice()
+    if df.empty:
+        return
+    print("\n📊 所有账户动态策略建议:")
+    print(df.to_string(index=False))
 
 if __name__ == "__main__":
     main()
