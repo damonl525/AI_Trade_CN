@@ -110,8 +110,51 @@ def compute_dynamic(port_ret: pd.Series, data, dpos) -> pd.Series:
     return total
 
 
+def apply_drawdown_guard(
+    port_ret: pd.Series,
+    dpos: pd.DataFrame,
+    threshold: float = -0.08,
+    recovery: float = -0.03,
+    guard_pos: float = 0.30,
+) -> pd.Series:
+    """回撤保护: 累计回撤超过阈值时强制降仓
+
+    逻辑:
+      - 跟踪滚动的累计净值峰值
+      - 当前回撤超过 threshold (默认 -8%) → 仓位上限锁在 guard_pos (默认 30%)
+      - 回撤恢复到 recovery (-3%) 以内 → 解除保护
+    """
+    cum = (1 + port_ret).cumprod()
+    peak = cum.expanding().max()
+    drawdown = (cum - peak) / peak
+
+    # 保护状态: True = 当前处于回撤保护中
+    guarded = pd.Series(False, index=port_ret.index)
+    in_guard = False
+    for i in range(len(drawdown)):
+        dd = drawdown.iloc[i]
+        if not in_guard and dd < threshold:
+            in_guard = True
+        elif in_guard and dd > recovery:
+            in_guard = False
+        guarded.iloc[i] = in_guard
+
+    # 对齐 dpos 到 port_ret 的索引
+    common_idx = port_ret.index.intersection(dpos.index)
+    guarded = guarded.loc[common_idx]
+    pos = dpos.loc[common_idx, "position"].copy()
+    pos[guarded] = pos[guarded].clip(upper=guard_pos)
+
+    scaled = port_ret.loc[common_idx] * pos
+    # 国债配置
+    bond_ret = pd.Series(0.0, index=common_idx)
+    cash_ret = bond_ret * (1 - pos)
+    total = scaled + cash_ret
+    total.name = f"{port_ret.name}+DD"
+    return total
+
+
 def stats(returns: pd.Series) -> dict:
-    """统计指标"""
     if returns.empty or returns.std() == 0:
         return {"total_return": 0.0, "cagr": 0.0, "max_dd": 0.0, "sharpe": 0.0, "volatility": 0.0, "win_rate": 0.0}
     total = (1 + returns).prod() - 1
@@ -167,6 +210,23 @@ if __name__ == "__main__":
         print(f"  {labels[f]:<8} 总收益{s['total_return']:>+8.2%}  年化{s['cagr']:>7.2%}  "
               f"回撤{s['max_dd']:>8.2%}  夏普{s['sharpe']:>5.2f}  波动{s['volatility']:>5.1%}  "
               f"胜率{s['win_rate']:>4.0%}")
+
+    # ── 回撤保护对比 ──
+    print(f"\n  {'─'*65}")
+    print(f"  🛡️ 回撤保护对比 (阈值 −8%, 保护期仓位 ≤ 30%):")
+    port_d = compute_rotation_returns(data, formula="dual", lookback=10, top_k=3, rebalance_days=40)
+    dyn_dd = apply_drawdown_guard(port_d, dpos)
+    s_dd = stats(dyn_dd)
+    port_d_base = compute_rotation_returns(data, formula="dual", lookback=10, top_k=3, rebalance_days=40)
+    dyn_base = compute_dynamic(port_d_base, data, dpos)
+    s_base = stats(dyn_base)
+    print(f"  原版双动量     总收益{s_base['total_return']:>+8.2%}  年化{s_base['cagr']:>7.2%}  "
+          f"回撤{s_base['max_dd']:>8.2%}  夏普{s_base['sharpe']:>5.2f}")
+    print(f"  双动量+回撤保护  总收益{s_dd['total_return']:>+8.2%}  年化{s_dd['cagr']:>7.2%}  "
+          f"回撤{s_dd['max_dd']:>8.2%}  夏普{s_dd['sharpe']:>5.2f}")
+    improvement = s_dd['max_dd'] - s_base['max_dd']
+    print(f"  回撤改善: {improvement:+.2%}  |  收益差: {s_dd['total_return']-s_base['total_return']:+.2%}")
+    results.append(("双动量+DD", "dual+DD", s_dd))
 
     # 排名
     results.sort(key=lambda x: x[2]["total_return"], reverse=True)

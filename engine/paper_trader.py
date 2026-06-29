@@ -339,6 +339,15 @@ class PaperTrader:
 
         # 4. 计算目标
         total_value = self._calc_total(acct["id"], acct["cash"])
+        cost = acct.get("total_cost", acct["cash"]) or acct["cash"]
+
+        # 🆕 回撤保护 (当前已关闭, 阈值 −99% 防止误触)
+        # 需要启用时: 将阈值改为如 −0.15 (15%回撤触发)
+        dd_pct = (total_value / cost - 1) if cost > 0 else 0
+        dd_guarded = dd_pct < -0.99  # 关闭状态
+        if dd_guarded:
+            dynamic_pos = min(dynamic_pos, 0.30)
+
         target_exposure = total_value * dynamic_pos          # 总风险敞口
         per_symbol_target = target_exposure / max(top_k, 1)   # 每只目标金额
 
@@ -355,6 +364,10 @@ class PaperTrader:
             "alerts": [],
             "executed": not dry_run,
         }
+
+        # 🆕 回撤保护提示
+        if dd_guarded:
+            report["alerts"].append(f"🛡️ 回撤保护触发 (当前{dd_pct:.1%}), 仓位锁在30%")
 
         # 5. 止损检查 (先于调仓)
         if not positions.empty:
