@@ -135,11 +135,19 @@ def print_signals(sig: dict, portfolio_value: float = 100_000):
     r = sig["regime"]
     pct = sig["position_mult"] * 100
     dp = sig.get("dyn_pos", {})
+
+    # 🆕 市场温度计
+    thermo = market_temperature(dp) if dp else {}
     
     print("\n" + "=" * 70)
     print(f"  🤖 AI量化动态信号 · {sig['date']}")
     print(f"  数据日期: {sig['data_date']}  |  策略: 双动量轮动 Top{sig['top_k']}")
     print("=" * 70)
+
+    # 🆕 温度计
+    if thermo:
+        print(f"\n  🌡️  市场温度: {thermo['bar']} {thermo['temp']}/100（{thermo['label']}）")
+    print(f"")
 
     # 🆕 双动量空池 → 建议空仓
     if sig.get("empty_pool"):
@@ -268,3 +276,43 @@ def _save_markdown(sig: dict, path: Path, portfolio: float):
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def market_temperature(dyn_pos: dict) -> dict:
+    """市场温度计: 把三信号揉成 0-100 直观分
+
+    Args:
+        dyn_pos: dynamic_position_now() 的输出
+
+    Returns:
+        {temp, bar, label, emoji}
+    """
+    import numpy as np
+    tz = dyn_pos.get("trend_z", 0)
+    mv = dyn_pos.get("mom_val", 0)
+    vr = dyn_pos.get("vol_rank", 0.5)
+
+    # Sigmoid 映射到 0-100
+    t_trend = 100 / (1 + np.exp(-1.5 * tz))
+    t_mom = 100 / (1 + np.exp(-0.15 * mv))  # mom_val 是百分比, scale 不同
+    t_vol = (1 - vr) * 100
+
+    temp = round(t_trend * 0.40 + t_mom * 0.35 + t_vol * 0.25)
+
+    # 温度分级
+    if temp >= 80:
+        label, emoji, bar_n = "过热", "🔥", 10
+    elif temp >= 60:
+        label, emoji, bar_n = "偏热", "🌡️", 8
+    elif temp >= 40:
+        label, emoji, bar_n = "温和", "🌤️", 5
+    elif temp >= 20:
+        label, emoji, bar_n = "偏冷", "❄️", 3
+    else:
+        label, emoji, bar_n = "冰点", "🧊", 1
+
+    filled = "█" * bar_n
+    empty = "░" * (10 - bar_n)
+    bar = f"{filled}{empty}"
+
+    return {"temp": temp, "bar": bar, "label": label, "emoji": emoji}
