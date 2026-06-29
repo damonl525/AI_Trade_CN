@@ -126,7 +126,7 @@ def cmd_walkforward(symbols: list = None):
         # 加载最优配置
         from config_strategy import STRATEGY
     except ImportError:
-        STRATEGY = {"lookback": 20, "top_k": 3, "rebal_freq": 20, "use_timing": True}
+        STRATEGY = {"lookback": 10, "top_k": 3, "rebal_freq": 20, "use_timing": True}
         print("⚠️ 未找到 config_strategy.py, 使用默认参数")
 
     wf = walk_forward(symbols, **STRATEGY)
@@ -145,7 +145,7 @@ def cmd_signal(top_k: int = None, lookback: int = None,
     try:
         from config_strategy import STRATEGY
     except ImportError:
-        STRATEGY = {"lookback": 20, "top_k": 3, "rebal_freq": 20, "use_timing": True}
+        STRATEGY = {"lookback": 10, "top_k": 3, "rebal_freq": 20, "use_timing": True}
 
     if top_k is None:
         top_k = STRATEGY.get("top_k", 3)
@@ -388,7 +388,7 @@ def _cmd_daily(args):
     from ai_summary import generate_daily_report
     from live_signal import generate_signals
     tk = getattr(args, "tk", None) or 3
-    lb = getattr(args, "lb", None) or 20
+    lb = getattr(args, "lb", None) or 10
     sig = generate_signals(top_k=tk, lookback=lb)
     report = generate_daily_report(sig, brief=args.brief)
     print(report)
@@ -399,7 +399,7 @@ def _cmd_entry(args):
     from live_signal import generate_signals
     from engine.dynamic_timing import dynamic_position_now
     tk = getattr(args, "tk", None) or 3
-    lb = getattr(args, "lb", None) or 20
+    lb = getattr(args, "lb", None) or 10
     sig = generate_signals(top_k=tk, lookback=lb)
     entry_check(sig, dynamic_position_now())
 

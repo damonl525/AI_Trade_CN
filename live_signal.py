@@ -63,7 +63,7 @@ def _last_date(symbol: str) -> str:
 
 def generate_signals(
     top_k: int = 3,
-    lookback: int = 20,
+    lookback: int = 10,
     min_momentum: float = -10,
 ) -> dict:
     """生成今天的买卖信号

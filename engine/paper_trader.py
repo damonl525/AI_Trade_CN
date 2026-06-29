@@ -227,7 +227,7 @@ class PaperTrader:
             ).fetchone()
             if row:
                 return {"id": row[0], "name": row[1], "type": row[2],
-                        "cash": row[3], "total_cost": row[4] or row[3], "notes": row[5]}
+                        "cash": row[3], "total_cost": (row[4] if row[4] and row[4] > 0 else row[3]), "notes": row[5]}
         return None
 
     def _calc_total(self, account_id: int, cash: float) -> float:
@@ -664,7 +664,7 @@ class PaperTrader:
         return pd.DataFrame(rows)
 
     def reset_account(self, name_or_id, cash: float = 100_000):
-        """重置账户 (清空持仓+交易记录, 恢复初始现金)"""
+        """重置账户 (清空持仓+交易记录, 恢复初始现金和成本基准)"""
         acct = self._get_account(name_or_id)
         if not acct:
             print(f"❌ 账户不存在: {name_or_id}")
@@ -674,7 +674,7 @@ class PaperTrader:
             c.execute("DELETE FROM positions WHERE account_id=?", (acct["id"],))
             c.execute("DELETE FROM trades WHERE account_id=?", (acct["id"],))
             c.execute("DELETE FROM nav_snapshots WHERE account_id=?", (acct["id"],))
-            c.execute("UPDATE accounts SET cash=? WHERE id=?", (cash, acct["id"]))
+            c.execute("UPDATE accounts SET cash=?, total_cost=? WHERE id=?", (cash, cash, acct["id"]))
         print(f"🔄 账户 [{acct['id']}] {acct['name']} 已重置, 现金=¥{cash:,.0f}")
 
     def delete_account(self, name_or_id):
